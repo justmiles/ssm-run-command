@@ -3,8 +3,7 @@ ssm-run-command
 
 Invoke a remote command(s) using SSM RunCommand and stream results back to stderr/stdout
 
-```
-
+```text
 Usage:
   run-command [flags] <command>
 
@@ -37,4 +36,9 @@ ssm-run-command --target "tag:Environment=qa" df -h /
 TODO:
 
 - capture ctrl+c and cancel the command
+- set custom cloudwatch logs location
+- delete logs from cloudwatch before closing (add --keep-logs flag to prevent deleting them from cloudwatch)
+- if command is cancelled, exit 1
+- if no targets are found after n seconds, exit 1 (--init-timeout)
+- set an execution timeout (--timeout)
 - provide documentation around the required AWS IAM permissions used
