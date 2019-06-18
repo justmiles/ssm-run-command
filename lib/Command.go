@@ -16,9 +16,10 @@ var (
 	sess = session.Must(session.NewSessionWithOptions(session.Options{
 		SharedConfigState: session.SharedConfigEnable,
 	}))
-	ec2Svc   = ec2.New(sess)
-	ssmSvc   = ssm.New(sess)
-	exitCode = 0
+	ec2Svc           = ec2.New(sess)
+	ssmSvc           = ssm.New(sess)
+	exitCode         = 0
+	executionTimeout = "172800" // 2 days, TODO: set as argument
 )
 
 // Command to execute
@@ -26,6 +27,7 @@ type Command struct {
 	DryRun           bool // TODO
 	Targets          []string
 	TargetLimit      int
+	ExecutionTimeout int
 	Command          []string
 	SSMCommand       *ssm.Command
 	invocations      Invocations
@@ -105,7 +107,10 @@ func (c *Command) RunCommand() error {
 		},
 	}
 
-	input.Parameters = map[string][]*string{"commands": aws.StringSlice([]string{strings.Join(c.Command, " ")})}
+	input.Parameters = map[string][]*string{
+		"commands":         aws.StringSlice([]string{strings.Join(c.Command, " ")}),
+		"executionTimeout": aws.StringSlice([]string{fmt.Sprintf("%d", c.ExecutionTimeout)}),
+	}
 
 	var targets []*ssm.Target
 
