@@ -40,5 +40,4 @@ TODO:
 - delete logs from cloudwatch before closing (add --keep-logs flag to prevent deleting them from cloudwatch)
 - if command is cancelled, exit 1
 - if no targets are found after n seconds, exit 1 (--init-timeout)
-- set an execution timeout (--timeout)
 - provide documentation around the required AWS IAM permissions used
