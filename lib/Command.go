@@ -28,6 +28,10 @@ type Command struct {
 	Targets          []string
 	TargetLimit      int
 	ExecutionTimeout int
+	MaxConcurrency   string
+	MaxErrors        string
+	Comment          string
+	LogGroup         string
 	Command          []string
 	SSMCommand       *ssm.Command
 	invocations      Invocations
@@ -96,13 +100,13 @@ func (c *Command) Run() (int, error) {
 // RunCommand against EC2 instances
 func (c *Command) RunCommand() error {
 	input := ssm.SendCommandInput{
-		TimeoutSeconds: aws.Int64(30),                                // TODO: make var InitTimeoutSeconds
-		MaxConcurrency: aws.String("1"),                              // TODO: make var
-		MaxErrors:      aws.String("1"),                              // TODO: make var
-		DocumentName:   aws.String("AWS-RunShellScript"),             // TODO: make var
-		Comment:        aws.String("invoked using ssm-send-command"), // TODO: make var
+		TimeoutSeconds: aws.Int64(30),
+		MaxConcurrency: &c.MaxConcurrency,
+		MaxErrors:      &c.MaxErrors,
+		DocumentName:   aws.String("AWS-RunShellScript"),
+		Comment:        &c.Comment,
 		CloudWatchOutputConfig: &ssm.CloudWatchOutputConfig{
-			CloudWatchLogGroupName:  aws.String("/test"), // TODO: make var
+			CloudWatchLogGroupName:  &c.LogGroup,
 			CloudWatchOutputEnabled: aws.Bool(true),
 		},
 	}
