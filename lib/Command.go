@@ -3,6 +3,7 @@ package command
 import (
 	"errors"
 	"fmt"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -45,28 +46,17 @@ func (c *Command) Run() (int, error) {
 		return 1, err
 	}
 
-	// Wait for commands to register
+	// poll for invocations
 	for {
-		time.Sleep(randomSeconds(2))
 		if err := c.UpdateStatus(); err != nil {
 			return 1, err
 		}
-		if *c.SSMCommand.TargetCount > 0 {
-			break
-		}
-		if *c.SSMCommand.Status != "Pending" && *c.SSMCommand.Status != "InProgress" {
-			break
-		}
-	}
-
-	// poll for invocations
-	for {
 
 		if err := c.UpdateInvocationList(); err != nil {
 			return 1, err
 		}
 
-		if c.invocations.areDone() {
+		if c.invocations.areDone() && c.Done() {
 			break
 		}
 
@@ -98,7 +88,7 @@ func (c *Command) Run() (int, error) {
 }
 
 // RunCommand against EC2 instances
-func (c *Command) RunCommand() error {
+func (c *Command) RunCommand() (err error) {
 	input := ssm.SendCommandInput{
 		TimeoutSeconds: aws.Int64(30),
 		MaxConcurrency: &c.MaxConcurrency,
@@ -116,24 +106,20 @@ func (c *Command) RunCommand() error {
 		"executionTimeout": aws.StringSlice([]string{fmt.Sprintf("%d", c.ExecutionTimeout)}),
 	}
 
-	var targets []*ssm.Target
-
-	for _, target := range c.Targets {
-		s := strings.SplitN(target, "=", 2)
-		if len(s) != 2 {
-			return fmt.Errorf("unable to derive target from: %s", target)
-		}
-		targets = append(targets, &ssm.Target{
-			Key:    aws.String(s[0]),
-			Values: aws.StringSlice(strings.Split(s[1], ",")),
-		})
+	targets, err := c.targets()
+	if err != nil {
+		return err
 	}
 
-	input.Targets = targets
-
-	// TODO, consider specific InstanceIds
-	// TODO, consider specific Parameters
-	// TODO, consider specific Targets
+	// If limiting the number of instances, provide instance ID directly
+	if c.TargetLimit == 0 {
+		input.Targets = targets
+	} else {
+		input.InstanceIds, err = randomTargets(targets, c.TargetLimit)
+		if err != nil {
+			return err
+		}
+	}
 
 	output, err := ssmSvc.SendCommand(&input)
 	if err != nil {
@@ -179,6 +165,19 @@ func (c *Command) Status() string {
 	}
 }
 
+// Done determine whether or not the command is finished
+func (c *Command) Done() bool {
+
+	switch *c.SSMCommand.StatusDetails {
+	case "NoInstancesInTag":
+		return true
+	case "Success":
+		return true
+	default:
+		return false
+	}
+}
+
 // UpdateInvocationList of currently running commands
 func (c *Command) UpdateInvocationList() error {
 
@@ -204,4 +203,60 @@ func (c *Command) UpdateInvocationList() error {
 	}
 
 	return err
+}
+
+func (c Command) targets() (targets []*ssm.Target, err error) {
+
+	for _, target := range c.Targets {
+		s := strings.SplitN(target, "=", 2)
+		if len(s) != 2 {
+			return targets, fmt.Errorf("unable to derive target from: %s", target)
+		}
+		targets = append(targets, &ssm.Target{
+			Key:    aws.String(s[0]),
+			Values: aws.StringSlice(strings.Split(s[1], ",")),
+		})
+	}
+
+	return targets, err
+}
+
+func randomTargets(targets []*ssm.Target, targetLimit int) (instances []*string, err error) {
+	input := &ec2.DescribeInstancesInput{
+		Filters: toFilter(targets),
+	}
+	result, err := ec2Svc.DescribeInstances(input)
+	if err != nil {
+		return
+	}
+
+	for _, reservation := range result.Reservations {
+
+		rand.Seed(time.Now().UnixNano())
+		rand.Shuffle(len(reservation.Instances), func(i, j int) {
+			reservation.Instances[i], reservation.Instances[j] = reservation.Instances[j], reservation.Instances[i]
+		})
+
+		for _, instance := range reservation.Instances {
+			instances = append(instances, instance.InstanceId)
+			if len(instances) == targetLimit {
+				return
+			}
+		}
+	}
+
+	if len(instances) == 0 {
+		err = fmt.Errorf("no instances found for targets")
+	}
+	return
+}
+
+func toFilter(targets []*ssm.Target) (filters []*ec2.Filter) {
+	for _, target := range targets {
+		filters = append(filters, &ec2.Filter{
+			Name:   target.Key,
+			Values: target.Values,
+		})
+	}
+	return filters
 }
