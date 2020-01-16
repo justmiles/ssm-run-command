@@ -155,6 +155,10 @@ func (c *Command) UpdateStatus() error {
 // Status returns a frendly status to show to user
 func (c *Command) Status() string {
 
+	if c.SSMCommand == nil {
+		return "command not yet started"
+	}
+
 	switch *c.SSMCommand.StatusDetails {
 	case "NoInstancesInTag":
 		return "no instances matched your targets"
