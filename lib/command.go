@@ -1,13 +1,15 @@
 package command
 
 import (
-	"errors"
 	"fmt"
 	"math/rand"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ssm"
@@ -35,62 +37,45 @@ type Command struct {
 	LogGroup         string
 	Command          []string
 	SSMCommand       *ssm.Command
-	invocations      Invocations
 	invocationErrors []error
 }
 
 // Run command and stream results to stdout
 func (c *Command) Run() (int, error) {
 
-	if err := c.RunCommand(); err != nil {
+	targets, err := c.targets()
+	if err != nil {
 		return 1, err
 	}
 
-	// poll for invocations
-	for {
-		if err := c.UpdateStatus(); err != nil {
-			return 1, err
-		}
-
-		if err := c.UpdateInvocationList(); err != nil {
-			return 1, err
-		}
-
-		if c.invocations.areDone() && c.Done() {
-			break
-		}
-
-		for _, invocation := range c.invocations {
-
-			// Start streaming stdout/stderr
-			if !invocation.streaming {
-				invocation.streaming = true
-				invocation.Stream()
-			}
-
-		}
-
-		time.Sleep(randomSeconds(3))
-
-	}
-
-	if err := c.UpdateStatus(); err != nil {
+	// Randomize and limit the number of instances
+	instanceIDs, err := randomTargets(targets, c.TargetLimit)
+	if err != nil {
 		return 1, err
 	}
 
-	for _, invocation := range c.invocations {
-		if *invocation.commandInvocation.Status != ssm.CommandInvocationStatusSuccess {
-			exitCode = 1
+	// Split the instanceIDs into batches of 50 items.
+	batch := 50
+	for i := 0; i < len(instanceIDs); i += batch {
+		j := i + batch
+		if j > len(instanceIDs) {
+			j = len(instanceIDs)
 		}
+
+		if err := c.RunCommand(instanceIDs[i:j]); err != nil {
+			return 1, err
+		}
+
 	}
 
 	return exitCode, nil
 }
 
 // RunCommand against EC2 instances
-func (c *Command) RunCommand() (err error) {
+func (c *Command) RunCommand(instanceIDs []*string) (err error) {
 	input := ssm.SendCommandInput{
 		TimeoutSeconds: aws.Int64(30),
+		InstanceIds:    instanceIDs,
 		MaxConcurrency: &c.MaxConcurrency,
 		MaxErrors:      &c.MaxErrors,
 		DocumentName:   aws.String("AWS-RunShellScript"),
@@ -106,21 +91,6 @@ func (c *Command) RunCommand() (err error) {
 		"executionTimeout": aws.StringSlice([]string{fmt.Sprintf("%d", c.ExecutionTimeout)}),
 	}
 
-	targets, err := c.targets()
-	if err != nil {
-		return err
-	}
-
-	// If limiting the number of instances, provide instance ID directly
-	if c.TargetLimit == 0 {
-		input.Targets = targets
-	} else {
-		input.InstanceIds, err = randomTargets(targets, c.TargetLimit)
-		if err != nil {
-			return err
-		}
-	}
-
 	output, err := ssmSvc.SendCommand(&input)
 	if err != nil {
 		return fmt.Errorf("Error invoking SendCommand: %s", err)
@@ -128,28 +98,44 @@ func (c *Command) RunCommand() (err error) {
 
 	c.SSMCommand = output.Command
 
+	// Wait for each instance to finish
+	var wg sync.WaitGroup
+
+	for _, instanceID := range instanceIDs {
+		wg.Add(1)
+		go Stream(&c.LogGroup, output.Command.CommandId, instanceID)
+		go WaitForInstance(output.Command.CommandId, instanceID, &wg)
+	}
+
+	wg.Wait()
+
+	time.Sleep(10 * time.Second)
 	return nil
 }
 
-// UpdateStatus of currently running command
-func (c *Command) UpdateStatus() error {
-	if c.SSMCommand == nil {
-		return errors.New("command not yet executed")
-	}
+// WaitForInstance waits for an instance to finish executing
+func WaitForInstance(commandID, instanceID *string, wg *sync.WaitGroup) {
 
-	update, err := ssmSvc.ListCommands(&ssm.ListCommandsInput{
-		CommandId:  c.SSMCommand.CommandId,
-		MaxResults: aws.Int64(1),
+	defer wg.Done()
+	var err error
+
+	err = ssmSvc.WaitUntilCommandExecuted(&ssm.GetCommandInvocationInput{
+		CommandId:  commandID,
+		InstanceId: instanceID,
 	})
+
 	if err != nil {
-		return fmt.Errorf("unable to update command invocation status: %s", err)
+
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case request.WaiterResourceNotReadyErrorCode:
+				exitCode = 1
+			default:
+				fmt.Printf("ERROR waiting for instance %s to execute: %s\n", *instanceID, err)
+			}
+		}
 	}
 
-	for _, command := range update.Commands {
-		c.SSMCommand = command
-	}
-
-	return nil
 }
 
 // Status returns a frendly status to show to user
@@ -167,46 +153,6 @@ func (c *Command) Status() string {
 	default:
 		return *c.SSMCommand.StatusDetails
 	}
-}
-
-// Done determine whether or not the command is finished
-func (c *Command) Done() bool {
-
-	switch *c.SSMCommand.StatusDetails {
-	case "NoInstancesInTag":
-		return true
-	case "Success":
-		return true
-	default:
-		return false
-	}
-}
-
-// UpdateInvocationList of currently running commands
-func (c *Command) UpdateInvocationList() error {
-
-	if c.SSMCommand == nil {
-		return errors.New("command not yet executed")
-	}
-
-	if c.invocations == nil {
-		c.invocations = make(map[string]*Invocation)
-	}
-
-	output, err := ssmSvc.ListCommandInvocations(&ssm.ListCommandInvocationsInput{
-		CommandId: c.SSMCommand.CommandId,
-	})
-
-	for _, invocation := range output.CommandInvocations {
-
-		if _, ok := c.invocations[*invocation.InstanceId]; !ok {
-			c.invocations[*invocation.InstanceId] = &Invocation{}
-		}
-
-		c.invocations[*invocation.InstanceId].commandInvocation = invocation
-	}
-
-	return err
 }
 
 func (c Command) targets() (targets []*ssm.Target, err error) {

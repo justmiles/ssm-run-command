@@ -10,30 +10,22 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
-	"github.com/aws/aws-sdk-go/service/ssm"
 	"github.com/kvz/logstreamer"
 )
-
-// Invocation is a running command
-type Invocation struct {
-	streaming         bool
-	stopStreaming     chan struct{}
-	commandInvocation *ssm.CommandInvocation
-}
 
 var cwSvc = cloudwatchlogs.New(sess)
 
 // Stream invocation logs to stderr/stdout
-func (inv *Invocation) Stream() {
-	logger := log.New(os.Stdout, *inv.commandInvocation.InstanceId+" ", 0)
+func Stream(logGroup, commandID, instanceID *string) {
+	logger := log.New(os.Stdout, *instanceID+" ", 0)
 
 	logStreamerOut := logstreamer.NewLogstreamer(logger, "stdout", false)
 	defer logStreamerOut.Close()
 
 	go streamFromCloudwatch(
 		logStreamerOut,
-		*inv.commandInvocation.CloudWatchOutputConfig.CloudWatchLogGroupName,
-		fmt.Sprintf("%s/%s/aws-runShellScript/stdout", *inv.commandInvocation.CommandId, *inv.commandInvocation.InstanceId),
+		*logGroup,
+		fmt.Sprintf("%s/%s/aws-runShellScript/stdout", *commandID, *instanceID),
 		os.Stderr,
 	)
 
@@ -42,8 +34,8 @@ func (inv *Invocation) Stream() {
 
 	go streamFromCloudwatch(
 		logStreamerErr,
-		*inv.commandInvocation.CloudWatchOutputConfig.CloudWatchLogGroupName,
-		fmt.Sprintf("%s/%s/aws-runShellScript/stderr", *inv.commandInvocation.CommandId, *inv.commandInvocation.InstanceId),
+		*logGroup,
+		fmt.Sprintf("%s/%s/aws-runShellScript/stderr", *commandID, *instanceID),
 		os.Stdout,
 	)
 

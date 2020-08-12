@@ -29,12 +29,6 @@ var rootCmd = &cobra.Command{
 			fmt.Println(err)
 		}
 
-		fmt.Println(c.Status())
-
-		if c.Status() == "no instances matched your targets" {
-			exitCode = 1
-		}
-
 		os.Exit(exitCode)
 	},
 }
