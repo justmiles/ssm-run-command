@@ -242,6 +242,13 @@ func randomTargets(targets []*ssm.Target, targetLimit int) (instances []*string,
 		})
 
 		for _, instance := range reservation.Instances {
+
+			if instance.Platform != nil {
+				if *instance.Platform == "windows" {
+					continue
+				}
+			}
+
 			instances = append(instances, instance.InstanceId)
 			if len(instances) == targetLimit {
 				return
