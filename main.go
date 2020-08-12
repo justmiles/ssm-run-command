@@ -5,8 +5,8 @@ import (
 )
 
 // Version of ssm-run-command. Overwritten during build
-var Version = "development"
+var version = "development"
 
 func main() {
-	cmd.Execute(Version)
+	cmd.Execute(version)
 }
