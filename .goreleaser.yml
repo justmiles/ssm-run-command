@@ -12,6 +12,10 @@ builds:
       - darwin
       - windows
       - linux
+    goarch:
+      - amd64
+      - arm
+      - arm64
 
 archives:
   - replacements:
