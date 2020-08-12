@@ -5,13 +5,28 @@ Invoke a remote command(s) using SSM RunCommand and stream results back to stder
 
 ```text
 Usage:
-  run-command [flags] <command>
+  run-command [flags]
 
 Flags:
-  -h, --help                 help for run-command
-      --target stringArray   target instances with these values. Example: --target "tag:App=MyApplication" --target "tag:Environment=qa"
-      --target-limit int     limit execution to first n targets. Max 50 (default 50)
-      --version              version for run-command
+  -c, --comment string           (Optional) Comment for command visible 
+                                 on the SSM dashboard (default "invoked using ssm-run-command CLI")
+      --execution-timeout int    (Optional) The time in seconds for a command 
+                                 to complete before it is considered to
+                                 have failed. Default is 3600 (1 hour). Maximum is 172800 (48 hours). (default 3600)
+  -h, --help                     help for run-command
+  -l, --log-group string         (Optional) The AWS CloudWatch log group 
+                                 for RunCommand to log to (default "/ssm-run-command")
+      --max-concurrency string   (Optional) The maximum number of instances that 
+                                 are allowed to run the command at the same time. You can 
+                                 specify a number such as 10 or a percentage such as 10%. (default "50")
+      --max-errors string        (Optional) The maximum number of errors allowed without 
+                                 the command failing. When the command fails one more time beyond the value 
+                                 of MaxErrors, the systems stopnsending the command to additional targets. 
+                                 You can specify a number like 10 or a percentage like 10%. (default "1")
+      --target stringArray       Target instances with these values. 
+                                 For example: --target tag:App=MyApplication --target tag:Environment=qa
+  -t, --target-limit int         (Optional) Limit execution to first n targets (default 50)
+      --version                  version for run-command
 ```
 
 Examples:
@@ -36,8 +51,7 @@ ssm-run-command --target "tag:Environment=qa" df -h /
 TODO:
 
 - capture ctrl+c and cancel the command
-- set custom cloudwatch logs location
-- delete logs from cloudwatch before closing (add --keep-logs flag to prevent deleting them from cloudwatch)
 - if command is cancelled, exit 1
+- delete logs from cloudwatch before closing (add --keep-logs flag to prevent deleting them from cloudwatch)
 - if no targets are found after n seconds, exit 1 (--init-timeout)
 - provide documentation around the required AWS IAM permissions used

@@ -47,7 +47,7 @@ func Execute(version string) {
 func init() {
 	rootCmd.Flags().SetInterspersed(false)
 
-	rootCmd.PersistentFlags().IntVarP(&c.TargetLimit, "target-limit", "t", 50, "(Optional) Limit execution to first n targets. Max 50")
+	rootCmd.PersistentFlags().IntVarP(&c.TargetLimit, "target-limit", "t", 50, "(Optional) Limit execution to first n targets")
 	rootCmd.PersistentFlags().IntVar(&c.ExecutionTimeout, "execution-timeout", 3600, "(Optional) The time in seconds for a command \nto complete before it is considered to\nhave failed. Default is 3600 (1 hour). Maximum is 172800 (48 hours).")
 	rootCmd.PersistentFlags().StringVar(&c.MaxConcurrency, "max-concurrency", "50", "(Optional) The maximum number of instances that \nare allowed to run the command at the same time. You can \nspecify a number such as 10 or a percentage such as 10%.")
 	rootCmd.PersistentFlags().StringVar(&c.MaxErrors, "max-errors", "1", "(Optional) The maximum number of errors allowed without \nthe command failing. When the command fails one more time beyond the value \nof MaxErrors, the systems stopnsending the command to additional targets. \nYou can specify a number like 10 or a percentage like 10%.")
