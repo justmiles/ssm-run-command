@@ -43,6 +43,9 @@ type Command struct {
 // Run command and stream results to stdout
 func (c *Command) Run() (int, error) {
 
+	// Ensure we always target running instances
+	c.Targets = append(c.Targets, "instance-state-name=running")
+
 	targets, err := c.targets()
 	if err != nil {
 		return 1, err
